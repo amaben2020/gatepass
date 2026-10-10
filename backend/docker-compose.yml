@@ -1,0 +1,46 @@
+services:
+  localstack:
+    image: localstack/localstack
+    ports: ["4566:4566"]
+    environment:
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN}
+      - SERVICES=sqs
+    volumes:
+      - ./localstack/init.sh:/etc/localstack/init/ready.d/init.sh
+
+  loki:
+    image: grafana/loki
+    ports: ["3100:3100"]
+
+  prometheus:
+    image: prom/prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  grafana:
+    image: grafana/grafana
+    ports: ["3000:3000"]
+    environment:
+      # Local only: skip the login screen.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on: [prometheus, loki]
+
+  # Per-container CPU / memory / network for everything running in Docker.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    ports: ["8080:8080"]
+    privileged: true
+    command: ["--housekeeping_interval=5s"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro

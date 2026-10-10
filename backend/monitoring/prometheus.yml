@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 5s
+
+# The API and worker run on your Mac, not in Docker, so Prometheus reaches them via host.docker.internal.
+scrape_configs:
+  - job_name: gatepass-api
+    static_configs:
+      - targets: ['host.docker.internal:4000']
+
+  - job_name: gatepass-worker
+    static_configs:
+      - targets: ['host.docker.internal:9101']
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  - job_name: gatepass-gatekeeper
+    static_configs:
+      - targets: ['host.docker.internal:9102']
