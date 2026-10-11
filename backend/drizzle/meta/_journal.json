@@ -8,6 +8,13 @@
       "when": 1791295754956,
       "tag": "0000_clear_talon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791704145740,
+      "tag": "0001_dashing_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

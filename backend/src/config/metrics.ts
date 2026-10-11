@@ -14,13 +14,13 @@ export const jobsSent = new client.Counter({
 export const jobsProcessed = new client.Counter({
   name: 'jobs_processed_total',
   help: 'Messages handled by the worker',
-  labelNames: ['outcome'] as const,
+  labelNames: ['queue', 'outcome'] as const,
 });
 
 export const jobDuration = new client.Histogram({
   name: 'job_processing_duration_seconds',
   help: 'Time spent handling one message',
-  labelNames: ['outcome'] as const,
+  labelNames: ['queue', 'outcome'] as const,
   buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5],
 });
 

@@ -19,7 +19,7 @@ How to use Grafana, Prometheus and Loki to find out what the app is doing, spot 
 
 Metrics tell you **that** something is wrong and **where**. Logs tell you **why**. Always start with metrics and finish with logs.
 
-Start everything with `npm run infra:up`, `npm run dev` and `npm run worker`, then open http://localhost:3000/d/gatepass.
+Start everything with `npm run infra:up`, `npm run dev` and `npm run workers:start`, then open http://localhost:3000/d/gatepass.
 
 ---
 
@@ -37,6 +37,7 @@ The top row covers the three signals every service is judged on, known as **RED*
 | Queue depth: `waiting` | Near 0 | Keeps growing: the worker can't keep up |
 | Queue depth: DLQ `waiting` | 0 | Any increase: messages are failing permanently |
 | Event loop lag p99 | A few ms | Over 100ms: something is blocking Node |
+| Process health (top row) | All UP | Any DOWN: that process is stopped, crashed or hung. Run `npm run doctor` |
 | CPU | Below 1.0 per process when idle | Pinned at about 1.0: Node's single thread is saturated |
 
 **Percentiles, not averages.** p95 = 200ms means 95% of requests finished within 200ms and 5% were slower. An average hides those slow 5%, and they're the requests your users complain about.
@@ -108,7 +109,7 @@ A LogQL query reads left to right: **pick streams → filter lines → parse →
 ```logql
 # 1. Pick streams by label (always required)
 {app="gatepass"}
-{app="gatepass", service="worker"}
+{app="gatepass", service="issue-ticket"}
 {app="gatepass", level="error"}
 
 # 2. Line filter: plain text search. Fast; do this early.
@@ -118,7 +119,7 @@ A LogQL query reads left to right: **pick streams → filter lines → parse →
 # 3. Parse JSON, then filter on fields
 {app="gatepass", service="api"} | json | status >= 500
 {app="gatepass", service="api"} | json | route="/api/auth/login" and durationMs > 200
-{app="gatepass", service="worker"} | json | message="job failed" and attempt >= 3
+{app="gatepass", service="issue-ticket"} | json | message="job failed" and attempt >= 3
 
 # 4. Follow one message through its whole life
 {app="gatepass"} |= "8ab1e150-31d2-4bbd-85ac-9e2e867072c0"
@@ -278,7 +279,7 @@ These aren't bugs, but they're what you'd raise at a review.
 | Most common error | `sum by (error) (count_over_time({app="gatepass", level="error"} \| json [1h]))` |
 | One request or job's story | `{app="gatepass"} \|= "<messageId or email>"` |
 | Slow requests | `{service="api"} \| json \| durationMs > 500` |
-| Failing jobs | `{service="worker"} \| json \| message="job failed"` |
+| Failing jobs | `{service="issue-ticket"} \| json \| message="job failed"` |
 | Secrets in logs? | `{app="gatepass"} \|= "params:"` |
 
 ## Load testing

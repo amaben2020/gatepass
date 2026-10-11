@@ -13,19 +13,33 @@ A backend for high-demand ticket sales, built to handle the moment a concert goe
  user picks a seat
         │
         ▼
- POST /api/jobs/waiting-room ──► Redis sorted set (score = join time)
-        │                         ZADD NX: clicking again keeps your place
-        │                         returns your position in line
+ POST /api/events/:id/waiting-room ──► waiting:{id}  sorted set, score = join time
+        │                         ZADD NX: joining again keeps your place
         ▼
- ┌───────────────── gatekeeper (every 2s) ─────────────────┐
- │ ZPOPMIN 100 users  (atomic: two gatekeepers never       │
- │                     admit the same user)                │
- │ SET vip-accept-pay-<userId> EX 600   (10-minute pass)   │
- │ SendMessage → SQS gatepass-jobs      (order job)        │
- │ on failure: put the user back at their original place   │
- └──────────────────────────┬──────────────────────────────┘
+ ┌───────────────── gatekeeper (every 2s, per on-sale event) ─────────────┐
+ │ one Lua script, atomic:                                                  │
+ │   drop expired shoppers → free = MAX_SHOPPERS − shopping                 │
+ │   ZPOPMIN free users → SET pass:{id}:<user> EX 900 → ZADD shoppers:{id}  │
+ └──────────────────────────┬───────────────────────────────────────────────┘
                             ▼
- ┌───────────────── SQS worker (long polling) ─────────────┐
+ GET  /api/events/:id/waiting-room   → waiting (position) | admitted | not_in_line
+ GET  /api/events/:id/seats          → map: available | held | yours | sold   (needs a pass)
+ POST /api/events/:id/seats/hold     → Lua: all-or-nothing SET seat:{id}:<seat> EX 600
+        ▼
+ POST /api/events/:id/orders         → order (pending) + Stripe PaymentIntent → clientSecret
+        │   the app collects the card with Stripe's Payment Element (card details never touch our server)
+        ▼
+ Stripe → POST /api/payments/webhook → verify signature → dedupe (webhook_events) → SQS FIFO
+        │                              MessageGroupId = orderId, MessageDeduplicationId = Stripe event id
+        ▼
+ ┌──────────── issue-ticket worker ─────────────────────────────────────────┐
+ │ order already finished? → skip (idempotent)                               │
+ │ payment failed → order failed, release seats                              │
+ │ seat locks expired → refund (Stripe idempotency key)                      │
+ │ else ONE transaction: seats → sold, insert tickets, order → paid          │
+ │ after COMMIT: release locks, free the shopping slot, send email           │
+ └───────────────────────────────────────────────────────────────────────────┘
+ ┌──────────── issue-ticket worker (SQS long poll) ────────┐
  │ process the order → DeleteMessage                        │
  │ failure → no delete → SQS redelivers (visibility 10s)    │
  │ 3 failed attempts → gatepass-jobs-dlq                    │
@@ -85,7 +99,8 @@ The rest of the defaults work as they are.
 npm run infra:up        # LocalStack (creates the queues), Loki, Prometheus, Grafana, cAdvisor
 npm run db:migrate      # users + session tables
 npm run dev             # API on http://localhost:4000 (reloads on save)
-npm run workers:start   # gatekeeper + SQS worker in the background
+npm run workers:start   # gatekeeper + issue-ticket worker in the background
+npm run doctor          # check everything is up
 npm run workers:logs    # watch them
 ```
 
@@ -96,23 +111,49 @@ npm run workers:logs    # watch them
 curl -c cookies.txt -H 'Content-Type: application/json' \
   -d '{"email":"me@test.dev","password":"supersecret"}' localhost:4000/api/auth/register
 
-# join the waiting room
-curl -b cookies.txt -X POST localhost:4000/api/jobs/waiting-room
-# → {"userId":"…","position":1}
+# seed an on-sale event with 200 seats and a test user (ada@gatepass.dev / supersecret)
+npm run db:seed
+
+# join the waiting room, then poll until admitted (the gatekeeper ticks every 2s)
+curl -b cookies.txt -X POST localhost:4000/api/events/<eventId>/waiting-room
+# → {"status":"waiting","position":1}
+curl -b cookies.txt localhost:4000/api/events/<eventId>/waiting-room
+# → {"status":"admitted","expiresAt":"…"}
+
+# seat map, then hold seats
+curl -b cookies.txt localhost:4000/api/events/<eventId>/seats
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -d '{"seatIds":["<seatId>","<seatId>"]}' localhost:4000/api/events/<eventId>/seats/hold
+# → {"seats":[…],"total":4000000,"expiresAt":"…"}
 ```
 
-Within 2 seconds the logs show the user being admitted and their order processed:
+## Payments (Stripe test mode)
 
+1. In the Stripe dashboard, switch on **Test mode** and copy the test keys from Developers → API keys:
+   - `backend/.env` → `STRIPE_SECRET_KEY=sk_test_…`
+   - `frontend/.env` → `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_…`
+2. Forward Stripe's webhooks to your laptop (Stripe can't reach `localhost` by itself):
+   ```bash
+   stripe login
+   stripe listen --forward-to localhost:4000/api/payments/webhook
+   ```
+   It prints `whsec_…`: put it in `backend/.env` as `STRIPE_WEBHOOK_SECRET`, then restart `npm run dev` and `npm run workers:restart`.
+3. Pay with `4242 4242 4242 4242` (any future date, any CVC). `4000 0000 0000 0002` is declined.
+
+Never use `sk_live_` keys here: they charge real cards.
+
+## Frontend
+
+A React app (Vite + TypeScript) in `frontend/` that walks the buyer flow on a phone-sized screen: sign in → events → waiting room → your turn → seat map → seats held. Beside it, an **Under the hood** panel shows every API request and response (status, error `code`, timing) and the live Redis state behind the screen: line size, shoppers, your pass TTL and your seat locks.
+
+```bash
+cd frontend
+npm install --include=dev
+npm run dev             # http://localhost:5173, with /api proxied to :4000
 ```
-INFO  api         joined waiting room  position=1
-INFO  gatekeeper  user admitted        orderMessageId=503670f7…
-INFO  worker      processing job       attempt=1
-INFO  worker      job done             durationMs=5
-```
 
-Join again and you get `409 Already admitted` until the pass expires.
+Vite proxies `/api` to the backend, so the session cookie is same-origin: no CORS setup. The Redis panel reads `GET /api/debug/events/:id`, which only exists outside production. To see two buyers compete for seats, register a second user in a private window.
 
-## API
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -120,8 +161,17 @@ Join again and you get `409 Already admitted` until the pass expires.
 | `POST` | `/api/auth/login` | none | Log in. `401` on a wrong email or password. |
 | `POST` | `/api/auth/logout` | session | Destroy the session. |
 | `GET` | `/api/auth/me` | session | The current user. |
-| `POST` | `/api/jobs/waiting-room` | session | Join the line; returns `position`. `409` if already admitted. |
+| `POST` | `/api/events/:eventId/waiting-room` | session | Join the line. Idempotent; returns the current status. `409 NOT_ON_SALE` for events not on sale. |
+| `GET` | `/api/events/:eventId/waiting-room` | session | Poll: `waiting` + position, `admitted` + `expiresAt`, or `not_in_line`. |
+| `GET` | `/api/events/:eventId/seats` | session + pass | Seat map with `available` / `held` / `yours` / `sold`. `403 NO_PASS` without a pass. |
+| `POST` | `/api/events/:eventId/seats/hold` | session + pass | Hold up to 4 seats for 10 minutes, replacing any previous hold. All or nothing: `409 SEAT_TAKEN` changes nothing. |
+| `DELETE` | `/api/events/:eventId/seats/hold` | session | Release your held seats. |
+| `POST` | `/api/events/:eventId/orders` | session + pass | Turn your held seats into a pending order and a Stripe PaymentIntent; returns `clientSecret`. A repeat with the same seats returns the same order. `409 HOLD_EXPIRED` / `NO_HOLD`. |
+| `GET` | `/api/orders/:orderId` | session | Order status (`pending` → `paid` / `failed` / `refunded`) and, once paid, its tickets. |
+| `POST` | `/api/payments/webhook` | Stripe signature | Stripe calls this. `400 BAD_SIGNATURE` for anything not signed with `STRIPE_WEBHOOK_SECRET`. |
 | `POST` | `/api/jobs` | none | Send any JSON body to SQS. Include `"fail": true` to watch it retry and land in the DLQ. |
+| `GET` | `/api/events` | none | List events with their status. |
+| `GET` | `/api/debug/events/:eventId` | session | **Development only.** The Redis state for this event and user (used by the frontend's panel). |
 | `GET` | `/metrics` | none | Prometheus metrics. |
 
 Sessions use an HTTP-only cookie (`gatepass.sid`). The cookie holds only a signed ID; the session data lives in Postgres.
@@ -163,18 +213,20 @@ backend/
 ├── src/
 │   ├── app.ts                    Express app: middleware, routes, error handler
 │   ├── server.ts                 HTTP entry point
-│   ├── worker.ts                 SQS worker
 │   ├── config/                   db (Drizzle + pg), redis, sqs, logger, metrics
 │   ├── features/
 │   │   ├── auth/                 model / repository / service / controller / routes
 │   │   └── jobs/
 │   │       ├── jobs.routes.ts    waiting room + job endpoints
-│   │       └── worker/process.ts gatekeeper
+│   │       └── worker/
+│   │           ├── gatekeeper.ts     admits users from the waiting room
+│   │           └── issue-ticket.ts   SQS worker: issues tickets
 │   └── middleware/               request logging + metrics, requireAuth
 ├── drizzle/                      SQL migrations
 ├── localstack/init.sh            creates gatepass-jobs + gatepass-jobs-dlq on startup
 ├── monitoring/                   Prometheus config, Grafana provisioning + dashboard
 ├── load/gatepass.js              k6 scenarios
+├── scripts/doctor.mjs            `npm run doctor` health check
 ├── docker-compose.yml            LocalStack, Loki, Prometheus, Grafana, cAdvisor
 └── ecosystem.config.cjs          pm2 apps
 ```
@@ -187,7 +239,9 @@ Run these from `backend/`.
 |---|---|
 | `npm run dev` | API with hot reload |
 | `npm run infra:up` / `infra:down` | Start or stop the Docker services |
-| `npm run workers:start` / `restart` / `stop` / `logs` | Manage the gatekeeper and SQS worker with pm2 |
+| `npm run workers:start` | Start (or restart) the gatekeeper and issue-ticket workers with pm2. They restart on code changes. |
+| `npm run workers:status` / `logs` / `stop` | Status table, live logs, stop and remove |
+| `npm run doctor` | Check containers, workers, endpoints and firing alerts; prints the fix for anything down |
 | `npm run db:update` | Generate and apply a migration after a schema change |
 | `npm run db:studio` | Browse the database |
 | `npm run load` | k6 load test |
@@ -195,8 +249,7 @@ Run these from `backend/`.
 
 ## Known limitations
 
-- **For testing, `POST /api/jobs/waiting-room` accepts a `userId` in the request body** in place of the session user. That lets any client queue as anyone. Remove it before real use.
-- **The SQS worker's `handle()` is a placeholder.** It simulates processing an order; there's no payment or ticket issuance yet.
-- **The gatekeeper admits a fixed 100 users every 2 seconds** rather than adapting to free checkout capacity.
+- **The issue-ticket worker also consumes the demo `gatepass-jobs` queue** (`POST /api/jobs`), kept as an SQS playground.
+- **The ticket email is simulated** (a log line). A real one would be enqueued after the transaction commits.
 - **LocalStack doesn't keep data between restarts.** The queues are recreated on startup, but any messages are lost.
 - **Container metrics show IDs instead of names** on Docker Desktop with the containerd image store.

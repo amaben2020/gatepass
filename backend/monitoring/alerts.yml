@@ -1,0 +1,20 @@
+groups:
+  - name: gatepass
+    rules:
+      # `up` is 1 when Prometheus could scrape the target, 0 when it couldn't (process down or hung).
+      - alert: ProcessDown
+        expr: up{job=~"gatepass-.*"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.job }} is down'
+          description: 'Prometheus has not reached {{ $labels.instance }} for 30s. Run `npm run doctor`.'
+
+      - alert: DeadLetterQueueGrowing
+        expr: increase(sqs_queue_messages{queue="gatepass-jobs-dlq", state="waiting"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Messages are landing in the DLQ'
+          description: 'Jobs failed 3 times. Check {service="issue-ticket"} | json | message="job failed" in Loki.'

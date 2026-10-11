@@ -10,7 +10,11 @@ import { logger } from './config/logger.js';
 import { register } from './config/metrics.js';
 import { rateLimit } from 'express-rate-limit';
 import authRoutes from './features/auth/auth.routes.js';
+import debugRoutes from './features/debug/debug.routes.js';
+import eventsRoutes from './features/events/events.routes.js';
 import jobsRoutes from './features/jobs/jobs.routes.js';
+import ordersRoutes from './features/orders/orders.routes.js';
+import paymentsRoutes from './features/payments/payments.routes.js';
 import { AuthError } from './features/auth/auth.service.js';
 import { observeRequests, recordMount } from './middleware/observe-requests.js';
 
@@ -44,6 +48,10 @@ app.get('/metrics', async (_req, res) => {
 
 app.use(observeRequests);
 
+// Stripe webhooks: before the rate limiter (Stripe retries are legit traffic), the JSON parser (needs raw bytes)
+// and sessions (Stripe has no cookie).
+app.use('/api/payments', recordMount, paymentsRoutes);
+
 // Before session/body parsing so rejected requests cost nothing.
 app.use(limiter);
 app.use(express.json());
@@ -64,16 +72,22 @@ app.use(
 );
 
 app.use('/api/auth', recordMount, authRoutes);
+app.use('/api/events', recordMount, eventsRoutes);
+app.use('/api/orders', recordMount, ordersRoutes);
 app.use('/api/jobs', recordMount, jobsRoutes);
+if (!isProd) app.use('/api/debug', recordMount, debugRoutes);
 
-type HttpError = Error & { status?: number; expose?: boolean };
+type HttpError = Error & { status?: number; expose?: boolean; code?: string };
 
 app.use((err: HttpError, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof AuthError)
     return res.status(err.status).json({ error: err.message });
   // body-parser errors (malformed JSON, body too large) are the client's fault: 4xx, not 500.
-  if (err.expose && err.status && err.status < 500)
-    return res.status(err.status).json({ error: err.message });
+  // Errors meant for the client (HttpError, body-parser's 4xx): their status and message go out as-is.
+  if (err.expose && err.status) {
+    if (err.status >= 500) logger.error('service unavailable', { err, path: req.originalUrl, code: err.code });
+    return res.status(err.status).json({ error: err.message, ...(err.code && { code: err.code }) });
+  }
   logger.error('unhandled error', { err, path: req.originalUrl });
   res.status(500).json({ error: 'Internal server error' });
 });

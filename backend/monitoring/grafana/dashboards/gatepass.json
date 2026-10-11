@@ -2,7 +2,7 @@
   "uid": "gatepass",
   "title": "Gatepass",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 5,
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -13,7 +13,7 @@
       {
         "name": "service",
         "type": "custom",
-        "query": "api,worker,gatekeeper",
+        "query": "api,gatekeeper,issue-ticket",
         "includeAll": true,
         "allValue": ".*",
         "current": {
@@ -36,13 +36,101 @@
   },
   "panels": [
     {
+      "id": 27,
+      "type": "row",
+      "title": "Health",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Process health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "UP = Prometheus scraped it in the last 5s. DOWN = the process is stopped, crashed or hung. Run `npm run doctor`.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "DOWN"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "up{job=~\"gatepass-.*\"}",
+          "legendFormat": "{{job}}",
+          "instant": true
+        }
+      ]
+    },
+    {
       "id": 1,
       "type": "row",
       "title": "API",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 5,
         "w": 24,
         "h": 1
       },
@@ -58,7 +146,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
+        "y": 6,
         "w": 8,
         "h": 8
       },
@@ -100,7 +188,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 1,
+        "y": 6,
         "w": 8,
         "h": 8
       },
@@ -159,7 +247,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 1,
+        "y": 6,
         "w": 8,
         "h": 8
       },
@@ -197,7 +285,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 14,
         "w": 24,
         "h": 1
       },
@@ -213,7 +301,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 15,
         "w": 8,
         "h": 8
       },
@@ -264,7 +352,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 10,
+        "y": 15,
         "w": 8,
         "h": 8
       },
@@ -305,7 +393,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 10,
+        "y": 15,
         "w": 8,
         "h": 8
       },
@@ -343,7 +431,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 23,
         "w": 24,
         "h": 1
       },
@@ -360,7 +448,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 24,
         "w": 6,
         "h": 8
       },
@@ -402,7 +490,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 19,
+        "y": 24,
         "w": 6,
         "h": 8
       },
@@ -443,7 +531,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 19,
+        "y": 24,
         "w": 6,
         "h": 8
       },
@@ -494,7 +582,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 19,
+        "y": 24,
         "w": 6,
         "h": 8
       },
@@ -532,7 +620,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 32,
         "w": 24,
         "h": 1
       },
@@ -549,7 +637,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 33,
         "w": 9,
         "h": 8
       },
@@ -594,7 +682,7 @@
       },
       "gridPos": {
         "x": 9,
-        "y": 28,
+        "y": 33,
         "w": 9,
         "h": 8
       },
@@ -639,7 +727,7 @@
       "description": "All containers combined, as a share of what Docker Desktop is allowed to use.",
       "gridPos": {
         "x": 18,
-        "y": 28,
+        "y": 33,
         "w": 6,
         "h": 8
       },
@@ -696,7 +784,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 41,
         "w": 24,
         "h": 1
       },
@@ -705,15 +793,15 @@
     {
       "id": 22,
       "type": "timeseries",
-      "title": "Waiting room size",
-      "description": "Users in the Redis sorted set, not yet admitted by the gatekeeper",
+      "title": "Waiting room: waiting vs shopping",
+      "description": "waiting = in line; shopping = admitted, holding a pass (capped at MAX_SHOPPERS per event)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 42,
         "w": 8,
         "h": 8
       },
@@ -739,8 +827,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "waiting_room_users",
-          "legendFormat": "waiting"
+          "expr": "sum by (state) (waiting_room_users)",
+          "legendFormat": "{{state}}"
         }
       ]
     },
@@ -755,7 +843,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 37,
+        "y": 42,
         "w": 8,
         "h": 8
       },
@@ -806,7 +894,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 37,
+        "y": 42,
         "w": 8,
         "h": 8
       },
@@ -848,7 +936,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 50,
         "w": 24,
         "h": 10
       },
@@ -866,7 +954,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{app=\"gatepass\", service=~\"gatekeeper|worker\"} | json | line_format \"{{.service}}  {{.message}}  user={{.userId}} {{if .attempt}}attempt={{.attempt}}{{end}} {{if .durationMs}}{{.durationMs}}ms{{end}} {{if .error}}error={{.error}}{{end}}\""
+          "expr": "{app=\"gatepass\", service=~\"gatekeeper|issue-ticket\"} | json | line_format \"{{.service}}  {{.message}}  user={{.userId}} {{if .attempt}}attempt={{.attempt}}{{end}} {{if .durationMs}}{{.durationMs}}ms{{end}} {{if .error}}error={{.error}}{{end}}\""
         }
       ]
     },
@@ -881,7 +969,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 60,
         "w": 24,
         "h": 10
       },
@@ -910,7 +998,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 65,
+        "y": 70,
         "w": 24,
         "h": 1
       },
@@ -926,7 +1014,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 66,
+        "y": 71,
         "w": 24,
         "h": 6
       },
@@ -964,7 +1052,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 77,
         "w": 24,
         "h": 12
       },
