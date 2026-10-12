@@ -15,6 +15,7 @@ import eventsRoutes from './features/events/events.routes.js';
 import jobsRoutes from './features/jobs/jobs.routes.js';
 import ordersRoutes from './features/orders/orders.routes.js';
 import paymentsRoutes from './features/payments/payments.routes.js';
+import learningRoutes from './features/learning/learning.routes.js';
 import { AuthError } from './features/auth/auth.service.js';
 import { observeRequests, recordMount } from './middleware/observe-requests.js';
 
@@ -75,6 +76,7 @@ app.use('/api/auth', recordMount, authRoutes);
 app.use('/api/events', recordMount, eventsRoutes);
 app.use('/api/orders', recordMount, ordersRoutes);
 app.use('/api/jobs', recordMount, jobsRoutes);
+app.use('/api/learning', recordMount, learningRoutes);
 if (!isProd) app.use('/api/debug', recordMount, debugRoutes);
 
 type HttpError = Error & { status?: number; expose?: boolean; code?: string };
@@ -85,8 +87,15 @@ app.use((err: HttpError, req: Request, res: Response, _next: NextFunction) => {
   // body-parser errors (malformed JSON, body too large) are the client's fault: 4xx, not 500.
   // Errors meant for the client (HttpError, body-parser's 4xx): their status and message go out as-is.
   if (err.expose && err.status) {
-    if (err.status >= 500) logger.error('service unavailable', { err, path: req.originalUrl, code: err.code });
-    return res.status(err.status).json({ error: err.message, ...(err.code && { code: err.code }) });
+    if (err.status >= 500)
+      logger.error('service unavailable', {
+        err,
+        path: req.originalUrl,
+        code: err.code,
+      });
+    return res
+      .status(err.status)
+      .json({ error: err.message, ...(err.code && { code: err.code }) });
   }
   logger.error('unhandled error', { err, path: req.originalUrl });
   res.status(500).json({ error: 'Internal server error' });
